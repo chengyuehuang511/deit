@@ -152,6 +152,15 @@ def get_args_parser():
     # * Finetuning params
     parser.add_argument('--finetune', default='', help='finetune from checkpoint')
     parser.add_argument('--attn-only', action='store_true') 
+
+    # * Load pretrained params
+    parser.add_argument(
+        "--load_pretrained",
+        type=str,
+        default="./pre_trained/clip_resnet50_pretrain.pt",  #
+        help="pretrained model direcotry",
+    )
+    parser.add_argument("--load_head", default=None, help="load CLIP zero-shot head")
     
     # Dataset parameters
     parser.add_argument('--data-path', default='/datasets01/imagenet_full_size/061417/', type=str,
@@ -260,15 +269,18 @@ def main(args):
             label_smoothing=args.smoothing, num_classes=args.nb_classes)
 
     print(f"Creating model: {args.model}")
-    model = create_model(
-        args.model,
-        pretrained=False,
-        num_classes=args.nb_classes,
-        drop_rate=args.drop,
-        drop_path_rate=args.drop_path,
-        drop_block_rate=None,
-        img_size=args.input_size
-    )
+    if args.model == "clip_vit_base16":
+        model = models.clip_vit_base16(load_pretrained=args.load_pretrained, load_head=args.load_head, nb_classes=args.nb_classes)
+    else:
+        model = create_model(
+            args.model,
+            pretrained=False,
+            num_classes=args.nb_classes,
+            drop_rate=args.drop,
+            drop_path_rate=args.drop_path,
+            drop_block_rate=None,
+            img_size=args.input_size
+        )
 
                     
     if args.finetune:

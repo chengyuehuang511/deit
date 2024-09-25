@@ -8,6 +8,8 @@ from timm.models.vision_transformer import VisionTransformer, _cfg
 from timm.models.registry import register_model
 from timm.models.layers import trunc_normal_
 
+from clip_models import VisionTransformer as clip_transformer
+
 
 __all__ = [
     'deit_tiny_patch16_224', 'deit_small_patch16_224', 'deit_base_patch16_224',
@@ -176,4 +178,64 @@ def deit_base_distilled_patch16_384(pretrained=False, **kwargs):
             map_location="cpu", check_hash=True
         )
         model.load_state_dict(checkpoint["model"])
+    return model
+
+
+def clip_vit_base16(**kwargs):
+    """
+    kwargs: load_pretrained, load_head, nb_classes
+    """
+    # Load CLIP visual enocder
+    with open(kwargs["load_pretrained"], "rb") as fp:
+        checkpiont = torch.jit.load(fp, map_location="cpu")
+    checkpoint_model = checkpiont.state_dict()
+    vision_width = checkpoint_model["visual.conv1.weight"].shape[0]
+    vision_layers = len(
+        [
+            k
+            for k in checkpoint_model.keys()
+            if k.startswith("visual.") and k.endswith(".attn.in_proj_weight")
+        ]
+    )
+    vision_patch_size = checkpoint_model["visual.conv1.weight"].shape[-1]
+    embed_dim = checkpoint_model["text_projection"].shape[1]
+    grid_size = round(
+        (checkpoint_model["visual.positional_embedding"].shape[0] - 1) ** 0.5
+    )
+    image_resolution = vision_patch_size * grid_size
+    vision_heads = vision_width // 64
+    model = clip_transformer(
+        input_resolution=image_resolution,
+        patch_size=vision_patch_size,
+        width=vision_width,
+        layers=vision_layers,
+        heads=vision_heads,
+        output_dim=embed_dim,
+        n_class=kwargs["nb_classes"],
+    )
+    checkpoint_model = {
+        k.replace("visual.", ""): v
+        for k, v in checkpoint_model.items()
+        if k.startswith("visual.")
+    }
+    model_dict = model.state_dict()
+    filtered_checkpoint = {
+        k: v
+        for k, v in checkpoint_model.items()
+        if k in model_dict and v.shape == model_dict[k].shape
+    }
+    model.load_state_dict(filtered_checkpoint, strict=False)
+    info = "Loaded pre-trained checkpoint '{}' and {}/{} layers".format(
+        kwargs["load_pretrained"], len(filtered_checkpoint), len(model_dict)
+    )
+    print(info)
+
+    # Load CLIP zero-shot head
+    if kwargs["load_head"] is not None:
+        with open(kwargs["load_head"], "rb") as fp:
+            checkpoint_head = torch.load(fp, map_location="cpu")
+        with torch.no_grad():
+            model.head.weight.copy_(checkpoint_head)
+        print("Loaded zero-shot head from '{}'".format(kwargs["load_head"]))
+    
     return model
